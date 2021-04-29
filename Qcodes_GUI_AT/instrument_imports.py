@@ -43,5 +43,6 @@ correct_names = {"PCIE_1751": "Advantech_PCIE_1751",
                  "HMC8043": "RohdeSchwarzHMC8043",
                  "DPO7200xx": "TektronixDPO7000xx",
                  "Keithley_2450": "Keithley2450",
+                 "Keithley_2600_channels":"Keithley_2600",
                  "Keithley_s46": "S46"
                  }

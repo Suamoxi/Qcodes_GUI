@@ -4,25 +4,27 @@ There u can find a set function for setting paramater defined by "name" to a val
 """
 
 from PyQt5.QtWidgets import QApplication, QWidget, QLineEdit, QPushButton, QLabel, QShortcut, QDesktopWidget, \
-    QRadioButton, QButtonGroup, QGroupBox, QHBoxLayout, QGridLayout, QVBoxLayout, QSizePolicy
+    QRadioButton, QButtonGroup, QGroupBox, QHBoxLayout, QGridLayout, QVBoxLayout, QSizePolicy, QComboBox
 from PyQt5.QtCore import Qt, pyqtSlot
 
 import sys
-
+import qcodes
+from qcodes import Parameter,ChannelList,Instrument
 from Helpers import *
 from AddNewParameterWidget import AddNewParameterWidget
 from ThreadWorker import Worker, progress_func, print_output, thread_complete
 from EditInstrumentParametersWidget import EditInstrumentParameterWidget
 from qcodes.instrument_drivers.QuTech.IVVI import IVVI
 from qcodes.instrument_drivers.IST_devices.DAC20bit import IST_20
-# from qcodes.instrument_drivers.ZI.MFLI import MFLI
-# from qcodes.instrument_drivers.ZI.MFLIpoll import MFLIpoll
-
+from qcodes.instrument.base import InstrumentBase
+from qcodes.instrument_drivers.MFLI.MFLI import MFLI
+from qcodes.instrument_drivers.MFLI.MFLIpoll import MFLIpoll
+import numpy as np
 
 class EditInstrumentWidget(QWidget):
 
     def __init__(self, instruments, dividers, active, thread_pool,
-                 tracked_parameter=None, parent=None, instrument_name=""):
+                 tracked_parameter=None, parent=None, instrument_name="",submodule_name = ""):
         """
         Constructor for EditInstrumentWidget window
 
@@ -33,6 +35,8 @@ class EditInstrumentWidget(QWidget):
         :param tracked_parameter: used for live mode of the instrument, only updates value of this parameter
         :param instrument_name: Name of an instrument to be edited
         :param parent: specify object that created this widget
+        :param submodule: Allows to create an editInstrumentWidget for a submodule of an instrument, typically 
+        for a Multi Channel Instrument, one window per channel 
         """
         super(EditInstrumentWidget, self).__init__()
         self.parent = parent
@@ -49,8 +53,14 @@ class EditInstrumentWidget(QWidget):
         # name of the instrument that is currently being edited
         self.instrument_name = instrument_name
         # instance of the instrument that is currently being edited
-        self.instrument = self.instruments[instrument_name]
-
+        self.submodule_name = submodule_name
+        
+        if self.submodule_name == "":   
+            self.instrument = self.instruments[instrument_name]
+        
+        else:
+            self.instrument = self.instruments[instrument_name].__dict__['submodules'][submodule_name]
+        #self.instrument = self.instruments[instrument_name].submodule 
         # keep track of workers messing with this window
         self.live = False
         self.worker = None
@@ -61,10 +71,16 @@ class EditInstrumentWidget(QWidget):
         self.textboxes = {}
         self.textboxes_real_values = {}
         self.textboxes_divided_values = {}
-
+        self.comboboxes = {}
         # references to buttons for editing inner parameters of each instrument parameter
         self.inner_parameter_btns = {}
-
+        
+        #Test to include the possibility of using functions and in the case of multi channels instruments a correct display
+        #of all the parameters 
+        
+        self.modules = self.instrument.__dict__['submodules']
+        self.functions = self.instrument.__dict__['functions']
+        
         self.init_ui()
         self.show()
 
@@ -84,7 +100,11 @@ class EditInstrumentWidget(QWidget):
         self.setGeometry((width - 600), int(0.05*height), 580, window_height)
         self.setMinimumSize(320, 260)
         # define title and icon of the widget
-        self.setWindowTitle("Edit " + self.instrument_name.upper() + " instrument")
+        if self.submodule_name == "":
+            
+            self.setWindowTitle("Edit " + self.instrument_name.upper() + " instrument")
+        else: 
+           self.setWindowTitle("Edit " + self.instrument_name.upper() + " instrument" + "_channel_" + self.submodule_name) 
         self.setWindowIcon(QtGui.QIcon("img/osciloscope_icon.png"))
 
         self.grid_layout = QGridLayout()
@@ -104,10 +124,12 @@ class EditInstrumentWidget(QWidget):
         self.go_live_btn.clicked.connect(self.toggle_live)
 
         label = QLabel("Original", self)
-        self.layout().addWidget(label, 2, 2, 1, 1)
-        label = QLabel("Applied", self)
         self.layout().addWidget(label, 2, 3, 1, 1)
+        label = QLabel("Applied", self)
+        self.layout().addWidget(label, 2, 4, 1, 1)
 
+
+        
         if isinstance(self.instrument, IVVI):
             params_to_show = {}
             params_to_show["timeout"] = getattr(self.instrument, "timeout")
@@ -115,125 +137,165 @@ class EditInstrumentWidget(QWidget):
                 name = "dac" + str(i + 1)
                 params_to_show[name] = getattr(self.instrument, name)
         # ################################################ Fix this ##################################################
+        
+        
         elif self.instrument_name in ["UHFLI", "MFLI"]:
             print("ja sam LockIn")
             params_to_show = {}
-        else:
-            params_to_show = self.instrument.parameters
-
+            
+                
         # create a row for each of the parameters of this instrument with fields for displaying original and applied
         # values, also field for editing, and buttons for geting and seting a value
         start_y = 80
         row = 3
+        column = 0
+        
+        
+        #params_to_show = create_params_to_show(self.instrument)
+        params_to_show = self.instrument.parameters
         for name, parameter in params_to_show.items():
             label = QLabel(name, self)
-            self.layout().addWidget(label, row, 0, 1, 1)
+            self.layout().addWidget(label, row, column, 1, 1)
 
             # create edit button for every inner parameter
             self.inner_parameter_btns[name] = QPushButton("Edit " + name, self)
-            self.layout().addWidget(self.inner_parameter_btns[name], row, 1, 1, 1)
+            self.layout().addWidget(self.inner_parameter_btns[name], row, column+ 1, 1, 1)
             self.inner_parameter_btns[name].clicked.connect(self.make_edit_parameter(name))
-
-            if is_numeric(self.instrument.parameters[name].get()):
-                val = round(float(self.instrument.parameters[name].get()), 3)
-            else:
-                val = self.instrument.parameters[name].get()
-            # display values that are currently set to that instruments inner parameter
-            self.textboxes_real_values[name] = QLineEdit(str(val), self)
-            self.layout().addWidget(self.textboxes_real_values[name], row, 2, 1, 1)
-            self.textboxes_real_values[name].setDisabled(True)
-            # if that parameter has divider attached to it, display additional text box
-            if str(parameter) in self.dividers:
-                self.textboxes_divided_values[name] = QLineEdit(str(round(self.dividers[str(parameter)].get_raw(), 3)),
-                                                                self)
-                self.layout().addWidget(self.textboxes_divided_values[name], row, 3, 1, 1)
-                self.textboxes_divided_values[name].setDisabled(True)
-            self.textboxes[name] = QLineEdit(str(val), self)
-            self.layout().addWidget(self.textboxes[name], row, 4, 1, 1)
+            
+            
+            val = 0
+                    
+            if parameter.gettable ==  True:
+                
+                if parameter.settable == True:
+                     
+                    if isinstance(parameter.vals,qcodes.utils.validators.Validator):
+                         try:
+                             val = parameter.get_latest() 
+                             
+                         except Exception as e:
+                             
+                             show_error_message("Warning", str(e))
+                             
+                             
+                         if isinstance(parameter.vals,qcodes.utils.validators.Enum):
+                             self.comboboxes[name] = QComboBox(self)
+                             self.layout().addWidget(self.comboboxes[name],row,column+ 2, 1, 1)
+                             for i in parameter.vals._valid_values:
+                                 j = str(i)
+                                 self.comboboxes[name].addItem(j,i)
+                                 
+                             
+                             self.textboxes[name] = QLineEdit(str(val), self)
+                             self.layout().addWidget(self.textboxes[name], row,column+ 4, 1, 1)   
+                             self.textboxes[name].setDisabled(True)
+                             
+                             
+                             self.textboxes_real_values[name] = QLineEdit(str(val), self)
+                             self.layout().addWidget(self.textboxes_real_values[name], row, column+3, 1, 1)
+                             self.textboxes_real_values[name].setDisabled(True)
+                             
+                             self.comboboxes[name].currentIndexChanged.connect(lambda checked, parameter_name=name: self.changeText(parameter_name))
+                             
+                         elif isinstance(parameter.vals,qcodes.utils.validators.Bool):
+                             self.comboboxes[name] = QComboBox(self)
+                             self.layout().addWidget(self.comboboxes[name],row,column+ 2, 1, 1)
+                             for i in parameter.vals._valid_values:
+                                 j = str(i)
+                                 self.comboboxes[name].addItem(j,i)
+                                 
+                             
+                             self.textboxes[name] = QLineEdit(str(val), self)
+                             self.layout().addWidget(self.textboxes[name], row,column+ 4, 1, 1)   
+                             self.textboxes[name].setDisabled(True)
+                             
+                             
+                             self.textboxes_real_values[name] = QLineEdit(str(val), self)
+                             self.layout().addWidget(self.textboxes_real_values[name], row, column+3, 1, 1)
+                             self.textboxes_real_values[name].setDisabled(True)
+                             
+                             self.comboboxes[name].currentIndexChanged.connect(lambda checked, parameter_name=name: self.changeText(parameter_name))
+                            
+                         else:    
+                            
+                    
+                            # display values that are currently set to that instruments inner parameter
+                            self.textboxes_real_values[name] = QLineEdit(str(val), self)
+                            self.layout().addWidget(self.textboxes_real_values[name], row,column+ 3, 1, 1)
+                            self.textboxes_real_values[name].setDisabled(True)
+            
+                        # if that parameter has divider attached to it, display additional text box
+                            if str(parameter) in self.dividers:
+                                self.textboxes_divided_values[name] = QLineEdit(str(np.format_float_scientific(self.dividers[str(parameter)].get_raw(), 3)),
+                                                                                self)
+                                self.layout().addWidget(self.textboxes_divided_values[name], row,column+ 2, 1, 1)
+                                self.textboxes_divided_values[name].setDisabled(True)
+                     
+                            else:
+                                self.textboxes[name] = QLineEdit(str(val), self)
+                                self.layout().addWidget(self.textboxes[name], row, column+4, 1, 1)
+                     
+                    #If the parameter has no validator set, ask the user to modify the driver to update a validator
+                    # Even if the driver isn't modified allows to try to get a value
+                    # Show messages link to the Visa errors that might occur, mostly for Curr/Volt sources, 
+                    # Don't block everything if this kind of errors pop up 
+                    
+                    
+                    
+                    else:
+                         show_error_message("Warning", f"Modify the instrument driver and add the right validator for the parameter {name}")
+                         try:
+                             
+                             val = self.instrument.parameters[name].get_latest()
+                             self.textboxes[name] = QLineEdit(str(val), self)
+                             self.layout().addWidget(self.textboxes[name], row,column+ 4, 1, 1)
+                             
+                             
+                         except Exception as e:
+                             show_error_message("Warning", str(e))
+            
+            
+                
             # show set button if that parameter is settable
             if hasattr(parameter, "set"):
                 set_value_btn = QPushButton("Set", self)
-                self.layout().addWidget(set_value_btn, row, 5, 1, 1)
+                self.layout().addWidget(set_value_btn, row, column+5, 1, 1)
                 set_value_btn.clicked.connect(self.make_set_parameter(name))
+           
             # show get button if that parameter is gettable
             if hasattr(parameter, "get"):
                 get_value_btn = QPushButton("Get", self)
-                self.layout().addWidget(get_value_btn, row, 6, 1, 1)
+                self.layout().addWidget(get_value_btn, row, column+6, 1, 1)
                 get_value_btn.clicked.connect(lambda checked, parameter_name=name: self.update_parameters_data(parameter_name))
+            
+            
             start_y += 25
             row += 1
-
-        # setting the polarity of the dacs (specific for IVVI instrument)
-        # i should make this a base class and extend for every "special needs" instrument
-        if isinstance(self.instrument, IVVI):
-            neg_label = QLabel("Neg", self)
-            self.layout().addWidget(neg_label, row, 3, 1, 1)
-            bip_label = QLabel("Bip", self)
-            self.layout().addWidget(bip_label, row, 4, 1, 1)
-            pos_label = QLabel("Pos", self)
-            self.layout().addWidget(pos_label, row, 5, 1, 1)
-            start_y += 20
-            self.group = {}
-            self.dac_polarities = {}
-            row += 1
-            for i in range(self.instrument._numdacs):
-                # add label that show what this group of radio buttons refers to
-                # add field that displays current value
-                # add group of radio buttons
-                # add set and get buttons
-                # create function that handles changing value (its not the same as set value
-                if not ((i + 1) % 4):
-                    dacs_label = QLabel("Dacs " + str(i-2) + " - " + str(i+1), self)
-                    self.layout().addWidget(dacs_label, row, 1, 1, 1)
-                    val = self.instrument.get_pol_dac(i-2)
-                    self.dac_polarities[i] = QLineEdit(val, self)
-                    self.layout().addWidget(self.dac_polarities[i], row, 2, 1, 1)
-                    self.dac_polarities[i].setDisabled(True)
-                    box = QGroupBox(self)
-                    layout = QHBoxLayout(self)
-                    self.layout().addWidget(box, row, 3, 1, 2)
-                    self.group[i] = QButtonGroup(self)
-                    neg = QRadioButton(self)
-                    self.group[i].addButton(neg)
-                    layout.addWidget(neg)
-                    bip = QRadioButton(self)
-                    bip.setChecked(True)
-                    self.group[i].addButton(bip)
-                    layout.addWidget(bip)
-                    pos = QRadioButton(self)
-                    self.group[i].addButton(pos)
-                    layout.addWidget(pos)
-                    box.setLayout(layout)
-                    self.group[i].setId(neg, 0)
-                    self.group[i].setId(bip, 1)
-                    self.group[i].setId(pos, 2)
-                    set_polarity_btn = QPushButton("Set", self)
-                    set_polarity_btn.clicked.connect(self.make_set_polarity(i, range(i-2, i+2)))
-                    self.layout().addWidget(set_polarity_btn, row, 5, 1, 1)
-                    get_polarity_btn = QPushButton("Get", self)
-                    self.layout().addWidget(get_polarity_btn, row, 6, 1, 1)
-                    start_y += 35
-                    row += 1
-
-        if isinstance(self.instrument, IST_20):
-            reinit_dac_btn = QPushButton("Re init dacs")
-            reinit_dac_btn.clicked.connect(self.reinit_dacs)
-            self.layout().addWidget(reinit_dac_btn, row, 4, 1, 1)
-
+            
+            if row > 20:
+                row_1 = row
+                row = 3
+                column += 7
+                
+        row = 21
+        
         add_new_parameter_btn = QPushButton("Add parameter", self)
         add_new_parameter_btn.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Minimum)
         self.layout().addWidget(add_new_parameter_btn, row, 0, 2, 2)
         add_new_parameter_btn.clicked.connect(self.add_new_parameter)
-
+        
+        
+        """
         # U can read right ?
         set_all_to_zero_btn = QPushButton("All zeroes", self)
         self.layout().addWidget(set_all_to_zero_btn, row, 6, 1, 1)
         set_all_to_zero_btn.clicked.connect(self.call_worker(self.set_all_to_zero))
-
+        """
         # Sets all to values currently displayed in the text boxes that are editable
         set_all_btn = QPushButton("SET ALL", self)
         set_all_btn.hide()
         self.layout().addWidget(set_all_btn, row, 5, 1, 1)
+        
         # set_all_btn.clicked.connect(self.call_worker(self.set_all))
         set_all_btn.clicked.connect(self.set_all)
 
@@ -255,6 +317,27 @@ class EditInstrumentWidget(QWidget):
     """""""""""""""""""""
     Data manipulation
     """""""""""""""""""""
+    
+    
+    def changeText(self, name):
+        """
+        
+
+        Parameters
+        ----------
+        name : Parameter name, used to reference combobox and Qlineedit
+
+        Returns
+        -------
+        Change the QLineEdit text of a parameter to the value choose in the combobox,
+        restraining the user from entering non valid values
+
+        """
+        value = str(self.comboboxes[name].currentText())
+        
+        self.textboxes[name].setText(value)
+    
+    
     def make_set_parameter(self, parameter_name):
         """
         Function factory that creates function for each of the set buttons. Takes in name of the instrument parameter
@@ -267,7 +350,7 @@ class EditInstrumentWidget(QWidget):
         def set_parameter():
             """
             Fetches the data from textbox belonging to the parameter (data set by user) and sets the parameter value
-            to that data. Also implements some data validation
+            to that data.
 
             Added handling with dividers attached (add detailed explanation)
 
@@ -277,46 +360,38 @@ class EditInstrumentWidget(QWidget):
             full_name = str(self.instrument.parameters[parameter_name])
             parameter = self.instrument.parameters[parameter_name]
             value = self.textboxes[parameter_name].text()
+            
             try:
-                is_valid = False
-                if hasattr(parameter.vals, "validtypes"):
-                    for data_type in parameter.vals.validtypes:
-                        try:
-                            set_value = data_type(value)
-                        except:
-                            continue
-                        else:
-                            is_valid = True
-                            break
-                elif hasattr(parameter.vals, "_valid_values"):
-                    data_types = list(set([type(value) for value in parameter.vals._valid_values]))
-                    for data_type in data_types:
-                        try:
-                            set_value = data_type(value)
-                        except:
-                            continue
-                        else:
-                            is_valid = True
-                            break
-                else:
-                    is_valid = True
-                    set_value = value
-
-                if is_valid:
+                set_value = value
+    
+                if is_numeric(set_value):
                     if hasattr(parameter, "set"):
-                        worker = Worker(lambda: self.instrument.set(parameter.name, set_value), False)
-                        worker.signals.finished.connect(self.update_parameters_data)
+                        worker = Worker(lambda: self.instrument.set(parameter.name, float(set_value)), False)
+                        worker.signals.finished.connect(lambda: self.update_parameters_data(parameter_name))
+                        self.thread_pool.start(worker)
+                    else:
+                        show_error_message("Warning", "Parameter {} does not have a set function".format(full_name))
+                        
+                elif is_bool(set_value):
+                    if hasattr(parameter, "set"):
+                        worker = Worker(lambda: self.instrument.set(parameter.name, eval(set_value)), False)
+                        worker.signals.finished.connect(lambda: self.update_parameters_data(parameter_name))
                         self.thread_pool.start(worker)
                     else:
                         show_error_message("Warning", "Parameter {} does not have a set function".format(full_name))
                 else:
-                    show_error_message("Warning",
-                                       "Value [ {} ] is not in the list of allowed values for parameter [ {} ]" .
-                                       format(value, full_name))
+                    if hasattr(parameter, "set"):
+                        worker = Worker(lambda: self.instrument.set(parameter.name, set_value), False)
+                        worker.signals.finished.connect(lambda: self.update_parameters_data(parameter_name))
+                        self.thread_pool.start(worker)
+                
             except Exception as e:
                 show_error_message("Warning", str(e))
-            else:
-                self.update_parameters_data()
+            
+            #else:
+             #   self.update_parameters_data()
+        
+        
         return set_parameter
 
     def make_edit_parameter(self, parameter):
@@ -342,7 +417,10 @@ class EditInstrumentWidget(QWidget):
             self.dac_polarities[group_id].setText(polarity)
 
         return set_polarity
-
+    
+    
+    
+    
     def update_parameters_data(self, name=None):
         """
         Updates values of all parameters after a change has been made. Implements data validation (has to be number)
@@ -355,38 +433,68 @@ class EditInstrumentWidget(QWidget):
         """
         if name is not None:
             full_name = str(self.instrument.parameters[name])
+            
+            
+            
             if full_name in self.dividers:
-                self.textboxes[name].setText(str(round(self.instrument.parameters[name].get_latest() / self.dividers[full_name].division_value, 3)))
+                self.textboxes[name].setText(str(np.format_float_scientific(self.instrument.parameters[name].get_latest() / self.dividers[full_name].division_value, 3)))
+                      
             else:
-                if isinstance(self.instrument, MFLI) or isinstance(self.instrument, MFLIpoll):
-                    self.textboxes[name].setText(str(round(self.instrument.parameters[name].get(), 9)))
+                if is_numeric(self.instrument.parameters[name].get_latest()):
+                    self.textboxes[name].setText(str(np.format_float_scientific(self.instrument.parameters[name].get_latest(), 3)))
+                
+                    
+
                 else:
+                     self.textboxes[name].setText(str(self.instrument.parameters[name].get_latest()))
+                """
+                if isinstance(self.instrument, MFLI) or isinstance(self.instrument, MFLIpoll):
+                    self.textboxes[name].setText(str(np.format_float_scientific(self.instrument.parameters[name].get(), 9)))
+                
+                else:
+                
                     if is_numeric(self.instrument.parameters[name].get_latest()):
-                        self.textboxes[name].setText(str(round(self.instrument.parameters[name].get_latest(), 3)))
+                        self.textboxes[name].setText(str(np.format_float_scientific(self.instrument.parameters[name].get_latest(), 3)))
+                    
                     else:
                         self.textboxes[name].setText(str(self.instrument.parameters[name].get_latest()))
+                """
+                #self.textboxes[name].setText(str(self.instrument.parameters[name].get_latest()))
+                
+               
             if is_numeric(self.instrument.parameters[name].get_latest()):
-                self.textboxes_real_values[name].setText(str(round(self.instrument.parameters[name].get_latest(), 3)))
+                self.textboxes_real_values[name].setText(str(np.format_float_scientific(self.instrument.parameters[name].get_latest(), 3)))
+            
             else:
+           
                 self.textboxes_real_values[name].setText(str(self.instrument.parameters[name].get_latest()))
+                
+                
         else:
             for name, textbox in self.textboxes.items():
                 full_name = str(self.instrument.parameters[name])
                 if full_name in self.dividers:
-                    textbox.setText(str(round(self.instrument.parameters[name].get_latest() / self.dividers[full_name].division_value, 3)))
+                    textbox.setText(str(np.format_float_scientific(self.instrument.parameters[name].get_latest() / self.dividers[full_name].division_value, 3)))
                 else:
+                    """
                     if is_numeric(self.instrument.parameters[name].get_latest()):
-                        textbox.setText(str(round(float(self.instrument.parameters[name].get_latest()), 3)))
+                        textbox.setText(str(np.format_float_scientific(float(self.instrument.parameters[name].get_latest()), 3)))
                     else:
-                        textbox.setText(str(self.instrument.parameters[name].get_latest()))
+                    """
+                    textbox.setText(str(self.instrument.parameters[name].get_latest()))
+                    
+                   
             for name, textbox in self.textboxes_real_values.items():
+               
                 if is_numeric(self.instrument.parameters[name].get_latest()):
-                    textbox.setText(str(round(float(self.instrument.parameters[name].get_latest()), 3)))
+                    textbox.setText(str(np.format_float_scientific(float(self.instrument.parameters[name].get_latest()), 3)))
                 else:
                     if is_numeric(self.instrument.parameters[name].get_latest()):
-                        textbox.setText(str(round(float(self.instrument.parameters[name].get_latest()), 3)))
+                        textbox.setText(str(np.format_float_scientific(float(self.instrument.parameters[name].get_latest()), 3)))
                     else:
+                
                         textbox.setText(str(self.instrument.parameters[name].get_latest()))
+              
             self.update_divided_values()
 
     def single_update(self):
@@ -400,7 +508,7 @@ class EditInstrumentWidget(QWidget):
             # get values from the divider
             param = self.instrument.parameters[name]
             divider = self.dividers[str(param)]
-            textbox.setText(str(round(param.get_latest()/divider.division_value, 3)))
+            textbox.setText(str(np.format_float_scientific(param.get_latest()/divider.division_value, 3)))
 
     def set_all_to_zero(self):
         """
@@ -534,17 +642,44 @@ class EditInstrumentWidget(QWidget):
         for name, textbox in self.textboxes.items():
             full_name = str(self.instrument.parameters[name])
             if full_name in self.dividers:
-                value = round(self.instrument.parameters[name].get_raw(), 3)
-                divided_value = round(self.dividers[full_name].get(), 3)
+                value = np.format_float_scientific(self.instrument.parameters[name].get_raw(), 3)
+                divided_value = np.format_float_scientific(self.dividers[full_name].get(), 3)
                 self.textboxes_divided_values[name].setText(str(divided_value))
             else:
                 if is_numeric(self.instrument.parameters[name].get()):
-                    value = round(float(self.instrument.parameters[name].get_latest()), 3)
+                    value = np.format_float_scientific(float(self.instrument.parameters[name].get_latest()), 3)
                 else:
                     value = self.instrument.parameters[name].get_latest()
             self.textboxes[name].setText(str(value))
             self.textboxes_real_values[name].setText(str(value))
-
+    """
+    def create_params_to_show(Instrument_instance):
+        if isinstance(Instrument_instance, InstrumentBase):
+            params_to_show= {}    
+            Submodules = Instrument_instance.__dict__['submodules']
+            Functions = Instrument_instance.__dict__['functions']
+            if Submodules == {}:
+                params_to_show = Instrument_instance.parameters
+                return params_to_show
+            else:
+                            
+                for i,j in Submodules.items():
+                            
+                            if isinstance(j,ChannelList):
+                                A = 0
+                            else: 
+                                
+                                #name_submodule = nameof(i)
+                                #A = f'{instrument_name}'+f'.{i}.parameters'
+                                dic_submodule_parameters = getattr(Instrument_instance,i).parameters
+                                for parameter in dic_submodule_parameters.keys():
+                                    if isinstance(dic_submodule_parameters[parameter], Parameter):
+                                        params_to_show[i+ '.' + parameter] =  dic_submodule_parameters[parameter]
+                return params_to_show
+              
+        else:
+            print('Error:Unvalid instrument')
+    """
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)

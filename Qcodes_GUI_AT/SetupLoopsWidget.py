@@ -10,7 +10,7 @@ import qcodes as qc
 from qcodes.actions import _QcodesBreak
 from qcodes.actions import Task
 from qcodes.loops import ActiveLoop, Loop
-from qcodes.instrument.base import Instrument
+from qcodes.instrument.base import Instrument,InstrumentBase
 from qcodes.instrument_drivers.devices import VoltageDivider
 
 
@@ -113,14 +113,17 @@ class LoopsWidget(QWidget):
         self.textbox_upper_limit = QLineEdit()
         self.textbox_upper_limit.setText("0")
         h_layout_lineedits.addWidget(self.textbox_upper_limit)
+        
         # number of steps
         self.textbox_num = QLineEdit()
         self.textbox_num.setText("1")
         h_layout_lineedits.addWidget(self.textbox_num)
+        
         # can use this insted of number of steps
         self.textbox_step_size = QLineEdit()
         self.textbox_step_size.setText("1")
         h_layout_lineedits.addWidget(self.textbox_step_size)
+        
         # this is actualy a delay (NOT STEPS !)
         self.textbox_step = QLineEdit()
         self.textbox_step.setText("0")
@@ -135,16 +138,26 @@ class LoopsWidget(QWidget):
         self.sweep_parameter_instrument_cb = QComboBox()
         h_layout_sweep.addWidget(self.sweep_parameter_instrument_cb)
         self.sweep_parameter_instrument_cb.setToolTip("Please select instrument to sweep from")
+        
+        
         for name, instrument in self.instruments.items():
             display_member = name
             value_member = instrument
             self.sweep_parameter_instrument_cb.addItem(display_member, value_member)
+            
+        # combobox for selecting module/chan in case of multi chan instrument 
+        self.sweep_module_cb = QComboBox()
+        h_layout_sweep.addWidget(self.sweep_module_cb)
+        self.sweep_module_cb.setToolTip("Please select channel to sweep")
+        self.layout().addLayout(h_layout_sweep)
+        
         # combobox for selecting parameter
         self.sweep_parameter_cb = QComboBox()
         h_layout_sweep.addWidget(self.sweep_parameter_cb)
         self.sweep_parameter_cb.setToolTip("Please select parameter to sweep")
         self.layout().addLayout(h_layout_sweep)
-
+        
+        
         # ####self.update_sweep_instrument_parameters()
         # Add divider to sweep parameter
 
@@ -166,6 +179,7 @@ class LoopsWidget(QWidget):
         add_parameter = QPushButton("Add action parameter")
         self.layout().addWidget(add_parameter)
         add_parameter.clicked.connect(self.add_parameter)
+        
         # same logic as sweep parameter (see line 110)
         h_layout_action = QHBoxLayout()
         self.action_parameter_instrument_cb = QComboBox(self)
@@ -174,15 +188,25 @@ class LoopsWidget(QWidget):
             display_member = name
             value_member = instrument
             self.action_parameter_instrument_cb.addItem(display_member, value_member)
-
+        
+        
+        # combobox for selecting module/chan in case of multi chan instrument 
+        self.action_module_cb = QComboBox()
+        h_layout_action.addWidget(self.action_module_cb)
+        
         # combobox for selecting parameter
         self.action_parameter_cb = QComboBox(self)
         h_layout_action.addWidget(self.action_parameter_cb)
+        
+        
+        
+        
         # add loops to combobox (loop can also be an action of another loop)
         for name, loop in self.loops.items():
             display_member_string = "[" + name + "]"
             data_member = loop
             self.action_parameter_instrument_cb.addItem(display_member_string, data_member)
+            
         # divider for action parameter
         div_layout = QVBoxLayout()
         label = QLabel("Divider", self)
@@ -195,15 +219,27 @@ class LoopsWidget(QWidget):
         h_layout_action.addLayout(div_layout)
         self.actions_v_layout.addLayout(h_layout_action)
         self.layout().addLayout(self.actions_v_layout)
-        # Creates a loop from user input data
+        
+        
+        # Creates a loop from user input data/// really ???? Or allows to create a loop from user input ????
         action_name = "action" + str(len(self.current_loop_actions_dictionary))
+        
+        
         self.current_loop_actions_dictionary[action_name] = [self.action_parameter_instrument_cb,
                                                              self.action_parameter_cb,
-                                                             self.action_parameter_divider]
-        # after adding all combo boxes update displayed data
-        self.update_action_instrument_parameters()
-        self.update_sweep_instrument_parameters()
-
+                                                             self.action_parameter_divider,
+                                                             self.action_module_cb]
+        
+        
+        # after adding all combo boxes update displayed data for module and action paramaters
+        self.update_action_instrument_modules(action_name)
+      
+        
+        # after adding all combo boxes update displayed data for module and sweep parameters
+        self.update_sweep_instrument_modules()
+       
+        
+        
         # Add a button for creating a loop
         if self.name != "":
             text = "Save changes"
@@ -217,11 +253,26 @@ class LoopsWidget(QWidget):
         self.add_loop_btn.clicked.connect(self.create_loop)
         self.textbox_num.editingFinished.connect(self.update_step_size)
         self.textbox_step_size.editingFinished.connect(self.update_num_of_steps)
-        self.sweep_parameter_instrument_cb.currentIndexChanged.connect(self.update_sweep_instrument_parameters)
-        self.action_parameter_instrument_cb.currentIndexChanged.connect(lambda checked,
-                                                                        act_name="action0":
-                                                                        self.update_action_instrument_parameters(
-                                                                            act_name))
+        
+        
+        
+        
+        
+        self.sweep_parameter_instrument_cb.currentIndexChanged.connect(self.update_sweep_instrument_modules)
+        
+        
+        self.sweep_module_cb.activated.connect(self.update_sweep_instrument_parameters)
+        
+        
+        self.action_parameter_instrument_cb.currentIndexChanged.connect(lambda checked, act_name="action0": self.update_action_instrument_modules(act_name))
+                
+             
+        self.action_module_cb.activated.connect(lambda checked, act_name="action0": self.update_action_instrument_parameters(act_name))
+            
+
+        
+            
+            
         self.action_parameter_cb.currentIndexChanged.connect(self.update_divider_value)
         self.sweep_parameter_cb.currentIndexChanged.connect(self.update_divider_value)
 
@@ -261,22 +312,29 @@ class LoopsWidget(QWidget):
         # create combo box for selecting an instrument
         action_parameter_instrument_cb = QComboBox()
         horizontal_layout.addWidget(action_parameter_instrument_cb)
+        
+        
         # fill instrument combo box with instrument names
         for name, instrument in self.instruments.items():
             display_member = name
             value_member = instrument
             action_parameter_instrument_cb.addItem(display_member, value_member)
-
-        # combobox for selecting parameter
-        action_parameter_cb = QComboBox()
-        horizontal_layout.addWidget(action_parameter_cb)
+        
+        
 
         # add loops to combobox (loop can also be an action of another loop)
         for name, loop in self.loops.items():
             display_member_string = "[" + name + "]"
             data_member = loop
             action_parameter_instrument_cb.addItem(display_member_string, data_member)
+        
+        # combobox for selecting module
+        action_module_cb = QComboBox()
+        horizontal_layout.addWidget(action_module_cb)
 
+        # combobox for selecting parameter
+        action_parameter_cb = QComboBox()
+        horizontal_layout.addWidget(action_parameter_cb)
         # divider for action parameter
         action_parameter_divider = QLineEdit("1")
         action_parameter_divider.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Minimum)
@@ -287,9 +345,17 @@ class LoopsWidget(QWidget):
 
         index = str(len(self.current_loop_actions_dictionary))
         action_name = "action" + index
+        
+        
         action_parameter_instrument_cb.currentIndexChanged.connect(lambda checked,
                                                                           act_name=action_name:
-                                                                   self.update_action_instrument_parameters(act_name))
+                                                                   self.update_action_instrument_modules(act_name))
+        
+        action_module_cb.activated.connect(lambda checked,
+                                                                          act_name=action_name:
+                                                                   self.update_action_instrument_parameters(act_name))    
+            
+            
         remove_action_btn.clicked.connect(lambda checked,
                                                  act_name=action_name:
                                           self.remove_parameter(act_name))
@@ -297,12 +363,15 @@ class LoopsWidget(QWidget):
         # add pointers to elements of the window representing newly created action
         self.current_loop_actions_dictionary[action_name] = [action_parameter_instrument_cb,
                                                              action_parameter_cb,
-                                                             action_parameter_divider, horizontal_layout]
+                                                             action_parameter_divider,
+                                                             action_module_cb,
+                                                             horizontal_layout]
+        
         action_parameter_cb.currentIndexChanged.connect(self.update_divider_value)
         self.remove_buttons[action_name] = remove_action_btn
 
         # update only newly created combo boxes
-        self.update_action_instrument_parameters(action_name=action_name)
+        self.update_action_instrument_modules(action_name=action_name)
         self.actions_v_layout.addLayout(horizontal_layout)
 
     def remove_parameter(self, action_name):
@@ -355,7 +424,7 @@ class LoopsWidget(QWidget):
                 warning_string = "Errm, looks like something went wrong ! \nHINT: Measurement parameters not set. \n"\
                                  + str(e)
                 show_error_message("Warning", warning_string)
-            else:
+            else:   
                 # Create dividres and add them to a dict of dividers (shared with main window)
                 sweep_parameter = self.sweep_parameter_cb.currentData()
                 if sweep_division != 1:
@@ -454,11 +523,69 @@ class LoopsWidget(QWidget):
             self.create_loop()
             self.close()
 
+    
+        
+    def update_sweep_instrument_modules(self):
+        """
+        Replaces data in parameters combo box. Fetch all modules of an instrument selected in a instrument combo box
+        and display them as options in module combo box
+
+        :return: NoneType
+        """
+        # upon selecting one of the instruments from the combo box update the other combo box with the modules that
+        # this particular instrument has. Meaning only modules of this instrument will now be selectable from this
+        # combobox
+        if len(self.instruments):
+            
+            
+            self.sweep_module_cb.clear()
+            self.sweep_parameter_cb.clear()
+            instrument = self.sweep_parameter_instrument_cb.currentData()
+            #instrument_name = self.sweep_parameter_instrument_cb.currentText()
+            
+            if len(instrument.submodules):
+                if len(instrument.parameters):
+                    display_member_string = instrument.name
+                    data_member = instrument
+                    self.sweep_module_cb.addItem(display_member_string, data_member)
+                
+                    for module in instrument.submodules.keys():
+                        
+                        if isinstance(instrument.submodules[module], InstrumentBase):
+                            display_member_string = module
+                            data_member = instrument.submodules[module]
+                                
+                            
+                            self.sweep_module_cb.addItem(display_member_string, data_member)
+              
+                else:
+                    for module in instrument.submodules.keys():
+                    
+                        if isinstance(instrument.submodules[module], InstrumentBase):
+                            display_member_string = module
+                            data_member = instrument.submodules[module]
+                                
+                            
+                            self.sweep_module_cb.addItem(display_member_string, data_member)
+               
+            else:
+                
+                display_member_string = instrument.name
+                data_member = instrument
+                self.sweep_module_cb.addItem(display_member_string, data_member)
+            
+                
+            self.update_sweep_instrument_parameters()
+            
+            
     def update_sweep_instrument_parameters(self):
         """
         Replaces data in parameters combo box. Fetch all parameters of an instrument selected in a instrument combo box
         and display them as options in parameters combo box
-
+        
+        Try adding the use of a validator test to keep only "sweepable" parameters
+        
+        
         :return: NoneType
         """
         # upon selecting one of the instruments from the combo box update the other combo box with the parameters that
@@ -466,21 +593,141 @@ class LoopsWidget(QWidget):
         # combobox
         if len(self.instruments):
             self.sweep_parameter_cb.clear()
+            
             instrument = self.sweep_parameter_instrument_cb.currentData()
-            for parameter in instrument.parameters:
-                # i guess i dont need to show IDN parameter
-                if parameter != "IDN" and str(instrument.parameters[parameter]) not in self.dividers:
-                    display_member_string = parameter
-                    data_member = instrument.parameters[parameter]
-                    self.sweep_parameter_cb.addItem(display_member_string, data_member)
-                if str(instrument.parameters[parameter]) in self.dividers:
-                    name = str(instrument.parameters[parameter])
-                    display_member_string = self.dividers[name].name
-                    data_member = instrument.parameters[parameter]
-                    self.sweep_parameter_cb.addItem(display_member_string, data_member)
-
+            module = self.sweep_module_cb.currentData()
+            
+            if instrument == module:
+                for parameter in instrument.parameters:
+                    # i guess i dont need to show IDN parameter
+                    #if isinstance(instrument.parameters[parameter].vals,qc.utils.validators.Numbers):
+                    
+                    if parameter != "IDN" and str(instrument.parameters[parameter]) not in self.dividers:
+                        display_member_string = parameter
+                        data_member = instrument.parameters[parameter]
+                        self.sweep_parameter_cb.addItem(display_member_string, data_member)
+                    if str(instrument.parameters[parameter]) in self.dividers:
+                        name = str(instrument.parameters[parameter])
+                        display_member_string = self.dividers[name].name
+                        data_member = instrument.parameters[parameter]
+                        self.sweep_parameter_cb.addItem(display_member_string, data_member)
+        
+            else:
+                module_name = self.sweep_module_cb.currentText()
+                
+                
+                for parameter in instrument.submodules[module_name].parameters:
+                    # i guess i dont need to show IDN parameter
+                    #if isinstance(instrument.parameters[parameter].vals,qc.utils.validators.Numbers):
+                        
+                    if parameter != "IDN" and str(instrument.submodules[module_name].parameters[parameter]) not in self.dividers:
+                        display_member_string = parameter
+                        data_member = instrument.submodules[module_name].parameters[parameter]
+                        self.sweep_parameter_cb.addItem(display_member_string, data_member)
+                    
+                    if str(instrument.submodules[module_name].parameters[parameter]) in self.dividers:
+                        name = str(instrument.submodules[module_name].parameters[parameter])
+                        display_member_string = self.dividers[name].name
+                        data_member = instrument.submodules[module_name].parameters[parameter]
+                        self.sweep_parameter_cb.addItem(display_member_string, data_member)
+                
         self.update_divider_value()
+    
+    def update_action_instrument_modules(self, action_name=None):
+        """
+        Replaces data in parameters combo box. Fetch all parameters of an instrument selected in a instrument combo box
+        and display them as options in parameters combo box
 
+        :return: NoneType
+        """
+        # Upon selecting one of possible instruments, update the parameter combo box to only display parameters that
+        # belong to this instrument meaning only those parameters will now be selectable
+        if (len(self.instruments)) and (action_name is None):
+            for name, action_array in self.current_loop_actions_dictionary.items():
+                # action_array looks like [instrument_cb, parameter_cb, divider_textbox], therefor,
+                # action_array[1].clear removes all elements currently in the parameters_combobox (parameter_cb) and module_cb
+                action_array[1].clear()
+                action_array[3].clear()
+                action = action_array[0].currentData()
+                
+                # if action is loop, then just show loop name, loop has no parameters so for module also show loop name
+                if isinstance(action, ActiveLoop):
+                    # action_array[0] grabs instrument (or in this case -> loop)
+                    display_member_string = action_array[0].currentText()
+                    data_member = action_array[0].currentData()
+                    # since its a loop, it doesnt have parameters, therefor, just display loop name as module
+                    
+                    action_array[3].addItem(display_member_string, data_member)
+                else:
+                    # if it's not a loop, then its an instrument
+                    if len(action.submodules):
+                        if len(action.parameters):
+                           display_member_string = action.name
+                           data_member = action
+                           action_array[3].addItem(display_member_string, data_member)
+                           
+                        for module in action.submodules:
+                            # if the instrument has channels, add each channel in the combobox,
+                            # only add modules that are defined as possible parameters holders aka InstrumentBase
+                            
+                            if isinstance(action.submodules[module], InstrumentBase):
+                                display_member_string = module
+                                data_member = action.submodules[module]
+                                    
+                                
+                                action_array[3].addItem(display_member_string, data_member)
+                        
+                    else:
+                        #if instrument doesn't have any channels also show for module_cb the instrument 
+                        display_member_string = action_array[0].currentText()
+                        data_member = action_array[0].currentData()
+                        action_array[3].addItem(display_member_string, data_member)
+                      
+            self.update_action_instrument_parameters(action_name=None)
+        
+            
+        
+        
+        # This block will get executed only if this function is called from method self.add_parameter/ WRONG, it will call as soon as the combobox has been initiated
+        elif (len(self.instruments)) and (action_name is not None):
+            action_array = self.current_loop_actions_dictionary[action_name]
+            action_array[3].clear()
+            action_array[1].clear()
+            action = action_array[0].currentData()
+            if not isinstance(action, ActiveLoop) and isinstance(action, Instrument):
+                
+                if len(action.submodules):
+                    if len(action.parameters):
+                           display_member_string = action.name
+                           data_member = action
+                           action_array[3].addItem(display_member_string, data_member)
+                    
+                    for module in action.submodules:
+                        # if the instrument has channels, add each channel in the combobox,
+                        # only add modules that are defined as possible parameters holders aka InstrumentBase
+                        
+                        if isinstance(action.submodules[module], InstrumentBase):
+                            display_member_string = module
+                            data_member = action.submodules[module]
+                                
+                            
+                            action_array[3].addItem(display_member_string, data_member)
+                        #if instrument doesn't have any channels also show for module_cb the instrument 
+                        
+                else:
+                    display_member_string = action_array[0].currentText()
+                    data_member = action_array[0].currentData()
+                    action_array[3].addItem(display_member_string, data_member)
+                    
+                
+            else:
+                display_member_string = action_array[0].currentText()
+                data_member = self.loops[display_member_string[1:-1]]
+                action_array[3].addItem(display_member_string, data_member)
+
+            self.update_action_instrument_parameters(action_name=action_name)
+        
+        
     def update_action_instrument_parameters(self, action_name=None):
         """
         Replaces data in parameters combo box. Fetch all parameters of an instrument selected in a instrument combo box
@@ -496,7 +743,7 @@ class LoopsWidget(QWidget):
                 # action_array[1].clear removes all elements currently in the parameters_combobox (parameter_cb)
                 action_array[1].clear()
                 action = action_array[0].currentData()
-
+                module = action_array[3].currentData()
                 # if action is loop, then just show loop name, loop has no parameters so for params also show loop name
                 if isinstance(action, ActiveLoop):
                     # action_array[0] grabs instrument (or in this case -> loop)
@@ -505,7 +752,62 @@ class LoopsWidget(QWidget):
                     # since its a loop, it doesnt have parameters, therefor, just display loop name as parameter
                     action_array[1].addItem(display_member_string, data_member)
                 else:
-                    # if it's not a loop, then its an instrument, in that case display all of it's parameters
+                    # if it's not a loop, then its an instrument
+                    if len(action.submodules):
+                        module_name = action_array[3].currentText()
+                
+                        
+                        for parameter in action.submodules[module_name].parameters:
+                            # i guess i dont need to show IDN parameter
+                            if parameter != "IDN" and str(action.submodules[module_name].parameters[parameter]) not in self.dividers:
+                                display_member_string = parameter
+                                data_member = action.submodules[module_name].parameters[parameter]
+                                action_array[1].addItem(display_member_string, data_member)
+                            if str(action.submodules[module_name].parameters[parameter]) in self.dividers:
+                                name = str(action.submodules[module_name].parameters[parameter])
+                                display_member_string = self.dividers[name].name
+                                data_member = action.submodules[module_name].parameters[parameter]
+                                action_array[1].addItem(display_member_string, data_member)
+                                
+                    
+                    else:
+                       
+                    # if it is a mono channel instrument, then give back all the parameters 
+                        for parameter in action.parameters:
+                            # i don't need to show IDN, otherwise display parameter name, and save reference to parameter
+                            # as a data member of the combo box row (also show basic data only if divider was not attached
+                            # to this parameter
+                            if parameter != "IDN" and str(action.parameters[parameter]) not in self.dividers:
+                                display_member_string = parameter
+                                data_member = action.parameters[parameter]
+                                action_array[1].addItem(display_member_string, data_member)
+                            # if divider has been added to this parameter then show values of the divider
+                            if str(action.parameters[parameter]) in self.dividers:
+                                param_name = str(action.parameters[parameter])
+                                display_member_string = self.dividers[param_name].name
+                                data_member = action.parameters[parameter]
+                                action_array[1].addItem(display_member_string, data_member)
+                        self.update_divider_value()
+                    
+         
+            
+        # This block will get executed only if this function is called from method self.add_parameter
+        elif (len(self.instruments)) and (action_name is not None):
+            action_array = self.current_loop_actions_dictionary[action_name]
+            action_array[1].clear()
+            action = action_array[0].currentData()
+            module = action_array[3].currentData()
+            
+            if isinstance(action, ActiveLoop):
+                    # action_array[0] grabs instrument (or in this case -> loop)
+                    display_member_string = action_array[0].currentText()
+                    data_member = action_array[0].currentData()
+                    # since its a loop, it doesnt have parameters, therefor, just display loop name as parameter
+                    action_array[1].addItem(display_member_string, data_member)
+            else:
+                # if it's not a loop, then its an instrument
+                if action == module:
+                # if it is a mono channel instrument, then give back all the parameters 
                     for parameter in action.parameters:
                         # i don't need to show IDN, otherwise display parameter name, and save reference to parameter
                         # as a data member of the combo box row (also show basic data only if divider was not attached
@@ -521,27 +823,25 @@ class LoopsWidget(QWidget):
                             data_member = action.parameters[parameter]
                             action_array[1].addItem(display_member_string, data_member)
                     self.update_divider_value()
-        # This block will get executed only if this function is called from method self.add_parameter
-        elif (len(self.instruments)) and (action_name is not None):
-            action_array = self.current_loop_actions_dictionary[action_name]
-            action_array[1].clear()
-            action = action_array[0].currentData()
-            if not isinstance(action, ActiveLoop) and isinstance(action, Instrument):
-                for parameter in action.parameters:
-                    if parameter != "IDN" and str(action.parameters[parameter]) not in self.dividers:
-                        display_member_string = parameter
-                        data_member = action.parameters[parameter]
-                        action_array[1].addItem(display_member_string, data_member)
-                    if str(action.parameters[parameter]) in self.dividers:
-                        param_name = str(action.parameters[parameter])
-                        display_member_string = self.dividers[param_name].name
-                        data_member = action.parameters[parameter]
-                        action_array[1].addItem(display_member_string, data_member)
-            else:
-                display_member_string = action_array[0].currentText()
-                data_member = self.loops[display_member_string[1:-1]]
-                action_array[1].addItem(display_member_string, data_member)
-
+                else:
+                    module_name = action_array[3].currentText()
+            
+                    
+                    for parameter in action.submodules[module_name].parameters:
+                        # i guess i dont need to show IDN parameter
+                        if parameter != "IDN" and str(action.submodules[module_name].parameters[parameter]) not in self.dividers:
+                            display_member_string = parameter
+                            data_member = action.submodules[module_name].parameters[parameter]
+                            action_array[1].addItem(display_member_string, data_member)
+                        if str(action.submodules[module_name].parameters[parameter]) in self.dividers:
+                            name = str(action.submodules[module_name].parameters[parameter])
+                            display_member_string = self.dividers[name].name
+                            data_member = action.submodules[module_name].parameters[parameter]
+                            action_array[1].addItem(display_member_string, data_member) 
+                
+                
+                
+    
     def fill_loop_data(self):
         """
         If this window is created with a loop passed to it then get all data from the loop and fill the fields in

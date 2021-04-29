@@ -32,15 +32,19 @@ class Widget(QWidget):
         :param default: instrument data (type, name, address) is filled based on what is passed as a default instrument
         """
         super(Widget, self).__init__()
+        
         # list of instruments shared with the mainWindow (contains all instruments created so far)
         self.instruments = instruments
 
         # dictionary containing pointers to all available instrument classes with instrument type as keys
         self.premade_instruments = {}
+        
         # call to a function that fills the above dict
         self.populate_premade_instruments()
+        
         # pointer to a parent widget
         self.parent = parent
+        
         # specifies an instrument to be show in the combobox by default
         self.default = default
         self.init_ui()
@@ -137,7 +141,7 @@ class Widget(QWidget):
                     parameter = instrument.parameters[param_name]
                     parameter.step = 100
                     parameter.inter_delay = 0
-
+        
         # if some instrument was created, add it to a dict of instruments shared with the main window and update
         # preview of the instruments in the main window
         if instrument is not None:
@@ -220,10 +224,12 @@ class Widget(QWidget):
         :return: NoneType
         """
         self.premade_instruments["DummyInstrument"] = getattr(importlib.import_module("DemoDummy"), "DummyInstrument")
+        self.premade_instruments["DummyChannelInstrument"] = getattr(importlib.import_module("DemoDummy"), "DummyChannelInstrument")
+        
         not_working = ["Keysight_33500B_channels", "M3201A", "M3300A", "M4i", "AWGFileParser", "Infiniium",
                        "KeysightAgilent_33XXX", "Model_336", "Base_SPDT", "RC_SP4T", "RC_SPDT", "USB_SPDT", "ZIUHFLI",
                        "QDac_channels", "RTO1000", "ZNB", "SR860", "SR86x", "AWG5208", "AWG70000A", "AWG70002A",
-                       "Keithley_2600_channels", "Keysight_N5183B", "Keysight_N6705B", "N52xx", "AG_UC8",
+                       "Keysight_N5183B", "Keysight_N6705B", "N52xx", "AG_UC8",
                        "MercuryiPS_VISA", ]
 
         path = os.path.dirname(inspect.getfile(qc)) + "\\instrument_drivers"
@@ -269,9 +275,21 @@ class Widget(QWidget):
         classname = self.instrument_type.text()
         name = self.instrument_name.text()
         instrument = None
-        if classname == "DummyInstrument":
+        if classname == "DummyInstrument" :
             try:
-                instrument = self.premade_instruments[classname](name, gates=["g1", "g2"])
+                instrument = self.premade_instruments[classname](name=name
+                                                                        ,gates=["g1", "g2"])
+            except Exception as e:
+                if "VI_ERROR_RSRC_NFOUND" in str(e):
+                    show_error_message("Critical error", str(e) +
+                                       "\n\nTranslated to human language: Your address is probably incorrect")
+                else:
+                    show_error_message("Critical error", str(e))
+                    
+                    
+        elif classname == "DummyChannelInstrument":
+            try:
+                instrument = self.premade_instruments[classname](name=name)
             except Exception as e:
                 if "VI_ERROR_RSRC_NFOUND" in str(e):
                     show_error_message("Critical error", str(e) +

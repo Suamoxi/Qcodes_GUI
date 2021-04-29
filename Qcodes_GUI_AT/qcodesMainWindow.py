@@ -28,12 +28,15 @@ from Random import random
 from ViewTree import ViewTree
 from TextEditWidget import Notepad
 from AddInstrumentWidget import Widget
+
 from measurments.MultiSweep import MultiSweep
 from SetupLoopsWidget import LoopsWidget
 from InstrumentData import instrument_data
 from AttachDividersWidget import DividerWidget
 from EditInstrumentWidget import EditInstrumentWidget
 from ThreadWorker import Worker, progress_func, print_output
+from qcodes.instrument.base import InstrumentBase
+from InstrumentFunctionWidget import FunctionWidget
 
 try:
     import keysightSD1
@@ -126,10 +129,10 @@ class MainWindow(QMainWindow):
 
         # keep track of live plots in case someone closes one of them that they can be reopened
         self.live_plots = []
-
+        self.edit_submodule = {}
         self.statusBar().showMessage("Ready")
         self.show()
-
+        
     """""""""""""""""""""
     User interface
     """""""""""""""""""""
@@ -214,9 +217,18 @@ class MainWindow(QMainWindow):
         self.btn_setup_loops.setIcon(icon)
         self.btn_setup_loops.clicked.connect(self.setup_loops)
 
+        """
+        # Button to open a window to individually control each instrument
+        self.btn_setup_measurements = QPushButton("Setup Measurements")
+        self.grid_layout.addWidget(self.btn_setup_measurements, 2, 6, 1, 2)
+        icon = QtGui.QIcon("img/measure.png")
+        self.btn_setup_measurements.setIcon(icon)
+        self.btn_setup_measurements.clicked.connect(self.setup_measurement)
+        """
+
         # Button to open a new window that is used for creating, editing and deleting dividers
         self.btn_attach_dividers = QPushButton("Attach dividers")
-        self.grid_layout.addWidget(self.btn_attach_dividers, 2, 6, 1, 2)
+        self.grid_layout.addWidget(self.btn_attach_dividers, 3, 6, 1, 2)
         icon = QtGui.QIcon("img/rheostat_icon.png")
         self.btn_attach_dividers.setIcon(icon)
         self.btn_attach_dividers.clicked.connect(self.open_attach_divider)
@@ -300,10 +312,10 @@ class MainWindow(QMainWindow):
             start_new_measurement_menu.addMenu(current_brand_menu)
             models = get_files_in_folder(path + "\\" + brand, True)
             for model in models:
-                if model[0:-3] not in ["M3201A", "M3300A","M4i", "Keithley_2600_channels", "AWGFileParser",
+                if model[0:-3] not in ["M3201A", "M3300A","M4i", "AWGFileParser",
                                        "Keysight_33500B_channels", "Infiniium", "KeysightAgilent_33XXX", "Model_336",
                                        "Base_SPDT", "RC_SP4T", "RC_SPDT", "USB_SPDT", "QDac_channels", "RTO1000", "ZNB",
-                                       "SR860", "SR86x", "AWG5208", "AWG70000A", "AWG70002A", "Keithley_2600_channels"]:
+                                       "SR860", "SR86x", "AWG5208", "AWG70000A", "AWG70002A"]:
                     # above is the list of instruments that produce error when attempting to create them
                     current_model_action = QAction(model[0:-3], self)
                     current_model_action.setData(model[0:-3])
@@ -357,19 +369,21 @@ class MainWindow(QMainWindow):
                 item.setFlags(Qt.ItemIsSelectable | Qt.ItemIsEnabled)
                 self.instruments_table.setItem(rows, 1, item)
                 current_instrument_btn = QPushButton("Edit")
-                current_instrument_btn.clicked.connect(self.make_open_instrument_edit(instrument))
+                current_instrument_btn.clicked.connect(self.make_open_instrument_base_edit(instrument))
                 self.instruments_table.setCellWidget(rows, 2, current_instrument_btn)
                 self.edit_button_dict[instrument] = current_instrument_btn
                 self.station_instruments[instrument] = self.instruments[instrument]
 
                 # Also bind a shortcut for opening that instrument coresponding to the number of the row that the
                 # instrument is displayed in (Example: instrument in row 1 will have shortcut F1, row 2 -> F2, ....)
+                """
                 key = "Key_F" + str(rows+1)
                 key_class = getattr(Qt, key)
 
                 add_shortcut = QShortcut(QtGui.QKeySequence(key_class), self)
-                add_shortcut.activated.connect(self.make_open_instrument_edit(instrument))
-
+                add_shortcut.activated.connect(self.make_open_instrument_base_edit(instrument))
+                """
+                
     def update_loops_preview(self, edit=False):
         """
         This function is called from child class (SetupLoopsWidget) each time a new loop is created.
@@ -449,7 +463,10 @@ class MainWindow(QMainWindow):
                 delete_current_loop.resize(35, 20)
                 delete_current_loop.clicked.connect(self.make_delete_loop(name, item))
                 self.loops_table.setCellWidget(rows, 3, delete_current_loop)
-
+                
+                
+                
+    
     def run_qcodes(self, with_plot=False):
         """
         Runs qcodes with specified instruments and parameters. Checks for errors in data prior to runing qcodes
@@ -491,7 +508,6 @@ class MainWindow(QMainWindow):
             
             
             parameter = get_plot_parameter_aurel(loop)
-            parameter_name = parameter[0]
             #run_ids = import_dat_file(data.location, exp= exp)
             # Check if the function was called with plot in background, if it was, create a new plot, delete backgroud
             # action of the loop (if a loop has been ran before with a background action [loop cannot have more then
@@ -501,15 +517,23 @@ class MainWindow(QMainWindow):
                 # if you are running loop in a loop then create one more graph that will display 10 most recent line
                 # traces
                 if isinstance(loop.actions[0], ActiveLoop):
-                    line_traces_plot = QtPlot(fig_x_position=0.05, fig_y_position=0.4, window_title="Line traces")
-                    self.live_plots.append(line_traces_plot)
+                    line_traces_plot_dict = create_plot_windows(parameter)
+                    sweep_parameter = loop.actions[0].sweep_values.parameter.full_name
+                    for i in parameter:
+                        self.live_plots.append(line_traces_plot_dict.dict_plot[i])
+                        line_traces_plot_dict.dict_plot[i].add(x=getattr(data,sweep_parameter+'_set')[self.line_trace_count],xlabel=sweep_parameter,y=getattr(data, i)[self.line_trace_count],symbol = '+')
+                    loop.actions[0].bg_task = None
+                    loop.actions[0].with_bg_task(line_traces_plot_dict.update_plot)
+                    
+                    
+                    
                     if len(loop.actions) < 3:
                         
-                        loop.actions.append(Task(lambda: self.update_line_traces(line_traces_plot, data, parameter_name)))
+                        loop.actions.append(Task(lambda: self.update_line_traces_aurel(line_traces_plot_dict,data,parameter,sweep_parameter)))
                     
                     else:
                         
-                        loop.actions[-1] = Task(lambda: self.update_line_traces(line_traces_plot, data, parameter_name))
+                        loop.actions[-1] = Task(lambda: self.update_line_traces_aurel(line_traces_plot_dict,data,parameter,sweep_parameter))
                     
                     loop.actions[0].progress_interval = None
                 
@@ -521,20 +545,23 @@ class MainWindow(QMainWindow):
                   
                 
                 
-                plot = QtPlot(fig_x_position=0.05, fig_y_position=0.4,  window_title=self.output_file_name.text())           
+                
+                full_plot_dict = create_plot_windows(parameter)
+                #plot = QtPlot(fig_x_position=0.05, fig_y_position=0.4,  window_title=self.output_file_name.text())           
                 #plot = qc.plots.qcmatplotlib.MatPlot(window_title=self.output_file_name.text())
                 #add_updater()
                 
-                self.live_plots.append(plot)
+                #self.live_plots.append(plot)
                 
                 for i in parameter:
-                    plot.add(getattr(data,i),symbol = '+')
                     
+                    self.live_plots.append(full_plot_dict.dict_plot[i])
+                    full_plot_dict.dict_plot[i].add(getattr(data,i),symbol = '+')
                 
                 #plot.add(getattr(data, parameter_name),symbol='+')
                 #loop.with_bg_task(plot.update, plot.save).run(use_threads=True)
                 loop.bg_task = None
-                worker = Worker(loop.with_bg_task(plot.update, plot.save).run, False)
+                worker = Worker(loop.with_bg_task(full_plot_dict.update_plot, full_plot_dict.save_plot).run, False)
         
              
             else:
@@ -659,7 +686,22 @@ class MainWindow(QMainWindow):
         self.setup_loops_widget = LoopsWidget(self.instruments, self.dividers, self.loops, self.actions, parent=self,
                                               loop_name=loop_name)
         self.setup_loops_widget.show()
+        
+    '''
+    @pyqtSlot()
+    def setup_measurement(self, loop_name=""):
+        """
+        Open a new widget for creating loops based on instruments added to "instruments" dictionary trough
+        AddInstrumentWidget. Loops created with this widget are added to MainWindows "loops" dictionary, also for each
+        loop an action to be executed is created and added to MainWindows "actions" list
 
+        :return:
+        """
+        self.setup_loops_widget = LoopsWidget(self.instruments, self.dividers, self.loops, self.actions, parent=self,
+                                              loop_name=loop_name)
+        self.setup_loops_widget.show()
+    '''
+    
     @pyqtSlot()
     def open_text_editor(self):
         """
@@ -730,12 +772,72 @@ class MainWindow(QMainWindow):
             # parent: reference to this widget
             # instrument_name: name of the instrument that is being edited, to be able to fetch it from instruments
             # dictionary that is also being passed to this widget
+            
+            
             self.edit_instrument = EditInstrumentWidget(self.instruments, self.dividers, self.active_isntruments,
                                                         self.thread_pool, parent=self, instrument_name=instrument)
             # Add newly created window to a list of active windows
+            
             self.active_isntruments.append(self.edit_instrument)
             self.edit_instrument.show()
         return open_instrument_edit
+    
+    def make_open_instrument_base_edit(self, instrument):
+        if hasattr(self.instruments[instrument], "timeout"):
+                self.instruments[instrument].set("timeout", 50)
+                
+        
+        
+        def open_instrument_base_edit(): 
+            
+            current_instrument = self.instruments[instrument]
+            param = current_instrument.parameters
+            
+            if len(current_instrument.submodules):
+                if len(copy_dict_without_IDN(param)):
+                    
+                    
+                    self.edit_instrument = EditInstrumentWidget(self.instruments, self.dividers, self.active_isntruments,
+                                                                    self.thread_pool, parent=self, instrument_name=instrument)
+                    # Add newly created window to a list of active windows
+                    self.active_isntruments.append(self.edit_instrument)
+                    self.edit_instrument.show()
+                    
+                    for module in self.instruments[instrument].submodules:
+                        if isinstance(self.instruments[instrument].submodules[module], InstrumentBase):
+                            self.edit_submodule[module] = EditInstrumentWidget(self.instruments, self.dividers, self.active_isntruments,
+                                                                        self.thread_pool, parent=self,
+                                                                        instrument_name=instrument,submodule_name = module)
+                            self.active_isntruments.append(self.edit_submodule[module])
+                            self.edit_submodule[module].show()
+                            
+                else:
+                    for module in self.instruments[instrument].submodules:
+                        if isinstance(self.instruments[instrument].submodules[module], InstrumentBase):
+                            self.edit_submodule[module] = EditInstrumentWidget(self.instruments, self.dividers, self.active_isntruments,
+                                                                        self.thread_pool, parent=self,
+                                                                        instrument_name=instrument,submodule_name = module)
+                            self.active_isntruments.append(self.edit_submodule[module])
+                            self.edit_submodule[module].show()
+                    
+                            
+            
+                
+            else:
+                self.edit_instrument = EditInstrumentWidget(self.instruments, self.dividers, self.active_isntruments,
+                                                                    self.thread_pool, parent=self, instrument_name=instrument)
+                # Add newly created window to a list of active windows
+                self.active_isntruments.append(self.edit_instrument)
+                self.edit_instrument.show()
+                
+        
+            self.use_function = FunctionWidget(self.instruments, self.dividers, self.active_isntruments,
+                                                                    self.thread_pool, parent=self, instrument_name=instrument)
+            self.active_isntruments.append(self.use_function)
+            self.use_function.show()
+        
+        return open_instrument_base_edit
+        
 
     def run_specific_loop(self, loop_name):
         """
@@ -879,6 +981,36 @@ class MainWindow(QMainWindow):
         plot.add(getattr(dataset, parameter_name)[self.line_trace_count],symbol = '+')
         print(self.line_trace_count)
         self.line_trace_count += 1
+        
+        
+    def update_trace_count_clear_if_needed(self,plot_windows_dict,parameter):
+        print(self.line_trace_count)  
+        self.line_trace_count += 1
+        if self.line_trace_count >= 10 :
+            for i in parameter:
+                plot_windows_dict.dict_plot[i].clear()
+          
+            
+    def update_line_traces_aurel(self,plot_windows_dict,dataset, parameters_list,sweep_parameter):
+        """
+        Add 10 line traces to a graph, and then clear the graph and add 10 new line traces.
+
+        :param plot: Instance of a graph that we want to add a line trace eto
+        :param dataset: Dataset from which we extract the data
+        :param parameter_name: Name of the parameter that is being plotted
+        :return: NoneType
+        """
+        
+        self.line_trace_count += 1
+        if self.line_trace_count < len(getattr(dataset,sweep_parameter +'_set')):
+            for i in parameters_list:
+                plot_windows_dict.dict_plot[i].add(x=getattr(dataset,sweep_parameter +'_set')[self.line_trace_count],xlabel = sweep_parameter,y=getattr(dataset, i)[self.line_trace_count],symbol = '+')
+            print(self.line_trace_count)
+        
+        #if self.line_trace_count >= 10 : 
+         #   plot_windows_dict.dict_plot[i].clear()
+
+
 
     def resize_for_loop(self, decrease=False):
         """
