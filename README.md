@@ -9,3 +9,5 @@ Install all contribution modules (can be handy but specially the drivers) => pip
 Install Keysight SD1 : https://www.keysight.com/us/en/lib/software-detail/instrument-firmware-software/sd1-3x-software-3120392.html
 
 Might need to install pyqtgraph : pip install pyqtgraph
+
+Launch qCodesMainWindow.py
