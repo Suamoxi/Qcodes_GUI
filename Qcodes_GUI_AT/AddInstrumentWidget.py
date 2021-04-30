@@ -220,7 +220,7 @@ class Widget(QWidget):
                        "KeysightAgilent_33XXX", "Model_336", "Base_SPDT", "RC_SP4T", "RC_SPDT", "USB_SPDT", "ZIUHFLI",
                        "QDac_channels", "RTO1000", "ZNB", "SR860", "SR86x", "AWG5208", "AWG70000A", "AWG70002A",
                        "Keysight_N5183B", "Keysight_N6705B", "N52xx", "AG_UC8",
-                       "MercuryiPS_VISA", ]
+                       "MercuryiPS_VISA","KtM960xDefs","KtMAwgDefs"]
 
         path = os.path.dirname(inspect.getfile(qc)) + "\\instrument_drivers"
         brands = get_subfolders(path, True)
