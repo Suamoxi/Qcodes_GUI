@@ -14,11 +14,9 @@ from Helpers import *
 from AddNewParameterWidget import AddNewParameterWidget
 from ThreadWorker import Worker, progress_func, print_output, thread_complete
 from EditInstrumentParametersWidget import EditInstrumentParameterWidget
-from qcodes.instrument_drivers.QuTech.IVVI import IVVI
-from qcodes.instrument_drivers.IST_devices.DAC20bit import IST_20
+
 from qcodes.instrument.base import InstrumentBase
-from qcodes.instrument_drivers.MFLI.MFLI import MFLI
-from qcodes.instrument_drivers.MFLI.MFLIpoll import MFLIpoll
+
 import numpy as np
 
 class EditInstrumentWidget(QWidget):
@@ -130,18 +128,6 @@ class EditInstrumentWidget(QWidget):
 
 
         
-        if isinstance(self.instrument, IVVI):
-            params_to_show = {}
-            params_to_show["timeout"] = getattr(self.instrument, "timeout")
-            for i in range(self.instrument._numdacs):
-                name = "dac" + str(i + 1)
-                params_to_show[name] = getattr(self.instrument, name)
-        # ################################################ Fix this ##################################################
-        
-        
-        elif self.instrument_name in ["UHFLI", "MFLI"]:
-            print("ja sam LockIn")
-            params_to_show = {}
             
                 
         # create a row for each of the parameters of this instrument with fields for displaying original and applied
@@ -447,19 +433,7 @@ class EditInstrumentWidget(QWidget):
 
                 else:
                      self.textboxes[name].setText(str(self.instrument.parameters[name].get_latest()))
-                """
-                if isinstance(self.instrument, MFLI) or isinstance(self.instrument, MFLIpoll):
-                    self.textboxes[name].setText(str(np.format_float_scientific(self.instrument.parameters[name].get(), 9)))
                 
-                else:
-                
-                    if is_numeric(self.instrument.parameters[name].get_latest()):
-                        self.textboxes[name].setText(str(np.format_float_scientific(self.instrument.parameters[name].get_latest(), 3)))
-                    
-                    else:
-                        self.textboxes[name].setText(str(self.instrument.parameters[name].get_latest()))
-                """
-                #self.textboxes[name].setText(str(self.instrument.parameters[name].get_latest()))
                 
                
             if is_numeric(self.instrument.parameters[name].get_latest()):

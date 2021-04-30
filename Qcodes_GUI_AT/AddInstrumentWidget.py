@@ -5,14 +5,10 @@ There u can find a set function for setting paramater defined by "name" to a val
 
 from PyQt5.QtWidgets import QApplication, QWidget, QLineEdit, QPushButton, QLabel, QComboBox, QShortcut, QVBoxLayout
 from PyQt5.QtCore import Qt, pyqtSignal
-
 import inspect
 import sys
 import importlib
-
 import qcodes as qc
-from qcodes.instrument_drivers.QuTech.IVVI import IVVI
-from qcodes.instrument_drivers.tektronix.AWG5014 import Tektronix_AWG5014
 from instrument_imports import *
 from InstrumentData import *
 from Helpers import *
@@ -134,13 +130,7 @@ class Widget(QWidget):
             instrument = self.create_object()
         except Exception as e:
             show_error_message("Warning", str(e))
-        else:
-            if isinstance(instrument, IVVI):
-                for i in range(instrument._numdacs):
-                    param_name = "dac" + str(i + 1)
-                    parameter = instrument.parameters[param_name]
-                    parameter.step = 100
-                    parameter.inter_delay = 0
+        
         
         # if some instrument was created, add it to a dict of instruments shared with the main window and update
         # preview of the instruments in the main window

@@ -22,11 +22,7 @@ from Helpers import *
 from AddNewParameterWidget import AddNewParameterWidget
 from ThreadWorker import Worker, progress_func, print_output, thread_complete
 from EditInstrumentParametersWidget import EditInstrumentParameterWidget
-from qcodes.instrument_drivers.QuTech.IVVI import IVVI
-from qcodes.instrument_drivers.IST_devices.DAC20bit import IST_20
 from qcodes.instrument.base import InstrumentBase
-from qcodes.instrument_drivers.MFLI.MFLI import MFLI
-from qcodes.instrument_drivers.MFLI.MFLIpoll import MFLIpoll
 
 
 class FunctionWidget(QWidget):
