@@ -10,6 +10,6 @@ Install Keysight SD1 : https://www.keysight.com/us/en/lib/software-detail/instru
 
 Might need to install pyqtgraph : pip install pyqtgraph
 
-Create a py file InstrumentData with a a dictionary instrument_data. This file is made to pre register connection information for an instrument. For instance {'Keythley 20000':'GPIB::0::INSTR'}. Although you can keep an empty dictionnary, especially if you wanna use multiple devices of the same kind. 
+Create a py file InstrumentData with a a dictionary instrument_data in the same folder than the other modules. This file is made to pre register connection information for an instrument. For instance {'Keythley 20000':'GPIB::0::INSTR'}. Although you can keep an empty dictionnary, especially if you wanna use multiple devices of the same kind. 
 
 Launch qCodesMainWindow.py
