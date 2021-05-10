@@ -130,6 +130,7 @@ class MainWindow(QMainWindow):
         # keep track of live plots in case someone closes one of them that they can be reopened
         self.live_plots = []
         self.edit_submodule = {}
+        self.use_function_submodule = {}
         self.statusBar().showMessage("Ready")
         self.show()
         
@@ -803,6 +804,14 @@ class MainWindow(QMainWindow):
                     self.active_isntruments.append(self.edit_instrument)
                     self.edit_instrument.show()
                     
+                    
+                    self.use_function = FunctionWidget(self.instruments, self.dividers, self.active_isntruments,
+                                                                    self.thread_pool, parent=self, instrument_name=instrument)
+                    self.active_isntruments.append(self.use_function)
+                    self.use_function.show()
+        
+                    
+                    
                     for module in self.instruments[instrument].submodules:
                         if isinstance(self.instruments[instrument].submodules[module], InstrumentBase):
                             self.edit_submodule[module] = EditInstrumentWidget(self.instruments, self.dividers, self.active_isntruments,
@@ -810,6 +819,15 @@ class MainWindow(QMainWindow):
                                                                         instrument_name=instrument,submodule_name = module)
                             self.active_isntruments.append(self.edit_submodule[module])
                             self.edit_submodule[module].show()
+                            
+                            
+                            self.use_function_submodule[module]= FunctionWidget(self.instruments, self.dividers, self.active_isntruments,
+                                                                        self.thread_pool, parent=self,
+                                                                        instrument_name=instrument,submodule_name = module)
+                            self.active_isntruments.append(self.use_function_submodule[module])
+                            self.use_function_submodule[module].show()
+                            
+                            
                             
                 else:
                     for module in self.instruments[instrument].submodules:
@@ -819,7 +837,12 @@ class MainWindow(QMainWindow):
                                                                         instrument_name=instrument,submodule_name = module)
                             self.active_isntruments.append(self.edit_submodule[module])
                             self.edit_submodule[module].show()
-                    
+                            self.use_function_submodule[module]= FunctionWidget(self.instruments, self.dividers, self.active_isntruments,
+                                                                        self.thread_pool, parent=self,
+                                                                        instrument_name=instrument,submodule_name = module)
+                            self.active_isntruments.append(self.use_function_submodule[module])
+                            self.use_function_submodule[module].show()
+                            
                             
             
                 

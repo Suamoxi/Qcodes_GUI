@@ -145,7 +145,7 @@ def is_bool(value):
     :param value: check if this can be casted to float
     :return:
     """
-    if value == 'True' or 'False':
+    if value == 'True' or value == 'False':
         return True
     else:
         return False
