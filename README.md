@@ -1,4 +1,4 @@
-# Qcodes_GUI_Aurel
+# Qcodes_GUI
 
  Qcodes GUI adaptation of https://github.com/kNalj/qcodesGUI
 
